@@ -150,6 +150,28 @@ select option{background:#171724}
 .hbadge.pend{background:rgba(255,255,255,.06);color:var(--mu);border:1px solid var(--b1)}
 
 .disc{padding:.6rem .9rem;background:var(--s2);border:1px solid var(--b1);border-radius:8px;font-size:10px;color:var(--mu2);text-align:center;margin-top:.5rem}
+.pdf-btn{width:100%;background:none;border:1px solid var(--b2);border-radius:10px;color:var(--mu);font-family:var(--fn);font-size:13px;font-weight:600;padding:.85rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.5rem;margin-top:.75rem;transition:all .15s}
+.pdf-btn:hover{border-color:var(--acc2);color:var(--acc2)}
+@media print{
+  .hdr,.nav,.arena,.ctx-grid,.pbtn,.ldg,.rec-card,.disc,.pdf-btn,.err{display:none!important}
+  body{background:#fff!important;color:#000!important;font-size:12px}
+  .rp{display:block!important}
+  .vcard,.scard,.clash-card,.ag,.ncard{background:#fff!important;border:1px solid #ddd!important;margin-bottom:12px;page-break-inside:avoid}
+  .slbl{color:#666!important}
+  .pv.h{color:#2563eb!important}.pv.d{color:#16a34a!important}.pv.a{color:#dc2626!important}
+  .bh{background:#2563eb!important}.bd{background:#16a34a!important}.ba{background:#dc2626!important}
+  .fbf{background:#2563eb!important}
+  .nbody,.ci-val,.fnote{color:#333!important}
+  .ci-val.a{color:#2563eb!important}.ci-val.b{color:#dc2626!important}
+  .sc.top{border-color:#16a34a!important}.sc.top .scs{color:#16a34a!important}
+  .scs{color:#000!important}
+  .ac,.ci,.sc{background:#f9f9f9!important}
+  .fn2,.ci-lbl,.scp,.scl,.pl,.clbl,.cval{color:#555!important}
+  .pdf-header{display:block!important}
+}
+.pdf-header{display:none;text-align:center;margin-bottom:1rem;padding-bottom:.75rem;border-bottom:2px solid #000}
+.pdf-header h1{font-size:18px;font-weight:700;margin-bottom:.25rem}
+.pdf-header p{font-size:11px;color:#666}
 
 @media(max-width:640px){
   .wrap{padding:1rem}.arena{grid-template-columns:1fr}.vs-col{display:none}
@@ -162,7 +184,7 @@ select option{background:#171724}
 
 <div class="hdr">
   <div class="hbadge">FIFA 2026</div>
-  <div class="htitle">Predictor Mundial <span style="font-family:var(--fm);font-size:9px;color:var(--mu2);margin-left:.3rem">v.4</span></div>
+  <div class="htitle">Predictor Mundial <span style="font-family:var(--fm);font-size:9px;color:var(--mu2);margin-left:.3rem">v.5</span></div>
   <div class="hright">
     <div class="free-badge">✓ GRATIS</div>
     <div class="acc-badge" id="accBadge">—% aciertos</div>
@@ -315,7 +337,12 @@ select option{background:#171724}
         </div>
       </div>
 
+      <div class="pdf-header" id="pdfHeader">
+        <h1 id="pdfTitle">Pronóstico Mundial 2026</h1>
+        <p id="pdfMeta"></p>
+      </div>
       <div class="disc">⚠ Análisis por IA (Gemini). El fútbol tiene variabilidad intrínseca. No constituye asesoramiento de apuestas.</div>
+      <button class="pdf-btn" onclick="printPDF()">🖨 Imprimir / Guardar PDF</button>
     </div>
   </div>
 
@@ -703,6 +730,19 @@ function updateAccBadge(){
   const hits=res.filter(h=>h.hit).length;
   const pct=res.length>0?Math.round(hits/res.length*100):null;
   document.getElementById('accBadge').textContent=pct!==null?`${pct}% aciertos (${res.length})`:HIST.length>0?`${HIST.length} sin verificar`:'—% aciertos';
+}
+
+// PRINT PDF
+function printPDF(){
+  const tA = document.getElementById('lA').textContent;
+  const tB = document.getElementById('lB').textContent;
+  const ph = document.getElementById('pH').textContent;
+  const pd = document.getElementById('pD').textContent;
+  const pa = document.getElementById('pA').textContent;
+  const date = new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'});
+  document.getElementById('pdfTitle').textContent = tA + ' vs ' + tB;
+  document.getElementById('pdfMeta').textContent = 'Mundial FIFA 2026 · Pronóstico generado el ' + date + ' · ' + ph + ' / ' + pd + ' / ' + pa;
+  window.print();
 }
 
 // INIT
