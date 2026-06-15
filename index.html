@@ -162,7 +162,7 @@ select option{background:#171724}
 
 <div class="hdr">
   <div class="hbadge">FIFA 2026</div>
-  <div class="htitle">Predictor Mundial <span style="font-family:var(--fm);font-size:9px;color:var(--mu2);margin-left:.3rem">v.3</span></div>
+  <div class="htitle">Predictor Mundial <span style="font-family:var(--fm);font-size:9px;color:var(--mu2);margin-left:.3rem">v.4</span></div>
   <div class="hright">
     <div class="free-badge">✓ GRATIS</div>
     <div class="acc-badge" id="accBadge">—% aciertos</div>
@@ -467,7 +467,7 @@ function parseJ(raw){
 // GEMINI API CALL
 // ══════════════════════════════════════════
 async function callGemini(prompt){
-  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${key()}`;
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key()}`;
   const res=await fetch(url,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
