@@ -924,6 +924,65 @@ function addLog(msg, type=''){
   el.scrollTop=el.scrollHeight;
 }
 
+function parseJsonSafe(raw){
+  // strip markdown fences
+  let s=raw.replace(/```json|```/g,'').trim();
+  // try direct parse
+  try{ return JSON.parse(s); } catch(e){}
+  // try extracting first {...}
+  const m=s.match(/\{[\s\S]*\}/);
+  if(m){ try{ return JSON.parse(m[0]); } catch(e){} }
+  // try to repair truncated JSON: close open braces/brackets
+  let depth=0, lastGoodIdx=0;
+  for(let i=0;i<s.length;i++){
+    const c=s[i];
+    if(c==='{' || c==='[') depth++;
+    else if(c==='}' || c===']') depth--;
+    if(depth===0 && i>10) lastGoodIdx=i;
+  }
+  if(lastGoodIdx>0){
+    const trimmed=s.slice(0,lastGoodIdx+1);
+    try{ return JSON.parse(trimmed); } catch(e){}
+  }
+  // try removing last incomplete entry and closing
+  const fixAttempt=s.replace(/,\s*"[^"]*"\s*:\s*\{[^}]*$/, '}').replace(/,\s*"[^"]*"\s*:\s*[^,}]*$/, '');
+  const closeNeeded=(fixAttempt.match(/\{/g)||[]).length - (fixAttempt.match(/\}/g)||[]).length;
+  const closed=fixAttempt + '}'.repeat(Math.max(0,closeNeeded));
+  try{ return JSON.parse(closed); } catch(e){}
+  throw new Error('JSON inválido incluso después de intentos de reparación.');
+}
+
+async function callClaudeUpdate(teamBatch){
+  const names=teamBatch.join(', ');
+  const prompt=`Eres un analista de fútbol con acceso a la web. Buscá información actualizada del Mundial FIFA 2026 sobre EXACTAMENTE estos equipos: ${names}.
+
+Para cada uno encontrá: resultados en el torneo, lesionados confirmados, sistema táctico, xG aproximado, novedades relevantes.
+Fuentes: sofascore.com, fbref.com, transfermarkt.com, espn.com, marca.com, goal.com
+
+Respondé ÚNICAMENTE con JSON puro (sin markdown, sin texto antes ni después):
+{"teams":{"NombreExacto":{"forma":"WDL","lesionados":"nombres o ninguno","tactica":"4-3-3","xg_favor":0.0,"xg_contra":0.0,"novedades":"texto o null","ajuste_off":0.0,"ajuste_def":0.0,"ajuste_mental":0.0}}}
+
+Usá los nombres EXACTAMENTE como te los di. Solo equipos con info real encontrada.`;
+
+  const response=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':getApiKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({
+      model:'claude-sonnet-4-6',
+      max_tokens:2000,
+      tools:[{type:'web_search_20250305',name:'web_search'}],
+      messages:[{role:'user',content:prompt}]
+    })
+  });
+  if(!response.ok){
+    const e=await response.json().catch(()=>({}));
+    throw new Error(e.error?.message||`HTTP ${response.status}`);
+  }
+  const data=await response.json();
+  const raw=data.content.filter(b=>b.type==='text').map(b=>b.text).join('');
+  return parseJsonSafe(raw);
+}
+
 async function runUpdate(){
   if(!getApiKey()){ alert('Configurá tu API key primero.'); openConfig(); return; }
   const btn=document.getElementById('updateBtn');
@@ -932,103 +991,55 @@ async function runUpdate(){
   document.getElementById('statusDot').className='status-dot updating';
   document.getElementById('statusTxt').textContent='Actualizando...';
 
-  addLog('Iniciando actualización de datos del Mundial FIFA 2026...','info');
-  addLog('Consultando fuentes: fbref, sofascore, transfermarkt, ESPN, Marca, odds...','info');
+  // Priority teams — most likely to be in the World Cup and have data
+  const PRIORITY=[
+    ['Argentina','Francia','España','Inglaterra','Brasil','Portugal','Países Bajos','Alemania'],
+    ['Colombia','Uruguay','Italia','Croacia','Marruecos','Senegal','México','Estados Unidos'],
+    ['Japón','Corea del Sur','Polonia','Suiza','Dinamarca','Ecuador','Canadá','Australia'],
+    ['Serbia','Turquía','Austria','Ucrania','Bélgica','Nigeria','Costa de Marfil','Egipto'],
+  ];
 
-  const teamNames=TEAMS.map(t=>t.n).join(', ');
+  addLog('Iniciando actualización por lotes (4 grupos de 8 equipos)...','info');
+  addLog('Fuentes: sofascore, fbref, transfermarkt, ESPN, Marca, goal...','info');
 
-  const prompt=`Eres un analista de fútbol con acceso a la web. Buscá información actualizada sobre el Mundial FIFA 2026 en estas fuentes: fbref.com, sofascore.com, transfermarkt.com, espn.com, marca.com, goal.com, fifa.com.
+  let totalUpdated=0;
+  const allSources=new Set();
 
-Para CADA equipo que está participando en el Mundial FIFA 2026, buscá y compilá:
-1. Forma reciente (resultados en el torneo)
-2. Lesionados confirmados (titulares fuera)
-3. Sistema táctico actual del DT
-4. xG generado y recibido en el torneo
-5. Rendimiento defensivo (goles en contra, clean sheets)
-6. Estado físico del plantel (minutos acumulados de titulares)
-7. Cualquier novedad relevante (cambio de DT, conflicto interno, etc.)
-
-Los equipos en el Mundial son: Argentina, Francia, España, Inglaterra, Brasil, Portugal, Países Bajos, Alemania, Colombia, Uruguay, Italia, Croacia, Marruecos, Senegal, México, Estados Unidos, Japón, Corea del Sur, Australia, Irán, Arabia Saudita, Canadá, Ecuador, Polonia, Suiza, Dinamarca, Serbia, Turquía, Austria, Ucrania, Bélgica, Ghana, Nigeria, Costa de Marfil, Egipto, Argelia, Túnez, Venezuela, Paraguay, Chile, Costa Rica, Honduras, Jamaica, Panamá, Escocia, Hungría, Grecia, Rep. Checa, Rumania, Eslovaquia, Eslovenia, Albania, Georgia, China, Indonesia, Irak, Uzbekistán, Qatar, Nueva Zelanda.
-
-Respondé ÚNICAMENTE con un JSON con esta estructura (sin markdown):
-{
-  "updated_at": "fecha hora",
-  "teams": {
-    "NombreEquipo": {
-      "forma": "WDLWW o similar",
-      "lesionados": "nombres o 'ninguno'",
-      "tactica": "sistema como 4-3-3",
-      "xg_favor": número,
-      "xg_contra": número,
-      "novedades": "texto corto o null",
-      "ajuste_off": número entre -1 y +1,
-      "ajuste_def": número entre -1 y +1,
-      "ajuste_mental": número entre -1 y +1
+  for(let i=0;i<PRIORITY.length;i++){
+    const batch=PRIORITY[i];
+    addLog(`Lote ${i+1}/4: ${batch.join(', ')}...`);
+    try{
+      const result=await callClaudeUpdate(batch);
+      const teams=result.teams||{};
+      const count=Object.keys(teams).length;
+      Object.entries(teams).forEach(([name,d])=>{
+        if(!DB[name]) DB[name]={};
+        DB[name]={...DB[name],...d,_updated:new Date().toISOString()};
+        totalUpdated++;
+      });
+      (result.sources||[]).forEach(s=>allSources.add(s));
+      saveDB();
+      addLog(`✓ Lote ${i+1} ok — ${count} equipos actualizados.`,'ok');
+      document.getElementById('statusTxt').textContent=`Actualizando... ${totalUpdated} equipos listos`;
+      // small pause between batches
+      if(i<PRIORITY.length-1) await new Promise(r=>setTimeout(r,1200));
+    } catch(err){
+      addLog(`⚠ Lote ${i+1} falló: ${err.message} — continuando...`,'err');
     }
-  },
-  "sources": ["lista de fuentes consultadas"]
-}
-
-Solo incluí los equipos para los que encontraste información real. No inventes datos.`;
-
-  try {
-    addLog('Enviando consulta a Claude con web search...','info');
-    const response=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':getApiKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-6',
-        max_tokens:4000,
-        tools:[{type:'web_search_20250305',name:'web_search'}],
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-
-    if(!response.ok){
-      const e=await response.json().catch(()=>({}));
-      throw new Error(e.error?.message||`HTTP ${response.status}`);
-    }
-
-    const data=await response.json();
-    const textBlocks=data.content.filter(b=>b.type==='text').map(b=>b.text).join('');
-    const clean=textBlocks.replace(/```json|```/g,'').trim();
-
-    let result;
-    try{ result=JSON.parse(clean); }
-    catch(e){
-      const m=clean.match(/\{[\s\S]*\}/);
-      if(m) result=JSON.parse(m[0]);
-      else throw new Error('No se pudo parsear la respuesta.');
-    }
-
-    const teams=result.teams||{};
-    const count=Object.keys(teams).length;
-
-    Object.entries(teams).forEach(([name,data])=>{
-      if(!DB[name]) DB[name]={};
-      DB[name]={...DB[name],...data,_updated:new Date().toISOString()};
-    });
-    DB._lastUpdate=new Date().toISOString();
-    DB._sources=result.sources||[];
-    saveDB();
-
-    addLog(`✓ Datos actualizados para ${count} equipos.`,'ok');
-    (result.sources||[]).forEach(s=>addLog(`Fuente: ${s}`,'ok'));
-    addLog('Base de datos guardada en localStorage.','ok');
-
-    document.getElementById('statusDot').className='status-dot ok';
-    document.getElementById('statusTxt').textContent=`Actualizado — ${count} equipos`;
-    document.getElementById('lastUpdateInfo').textContent=`Última actualización: ${new Date().toLocaleString('es-AR')}`;
-
-    renderDataPreview();
-
-  } catch(err){
-    addLog(`ERROR: ${err.message}`,'err');
-    document.getElementById('statusDot').className='status-dot';
-    document.getElementById('statusTxt').textContent='Error en actualización';
-  } finally {
-    btn.disabled=false;
   }
+
+  DB._lastUpdate=new Date().toISOString();
+  DB._sources=[...allSources];
+  saveDB();
+
+  addLog(`✓ Actualización completa — ${totalUpdated} equipos en base.`,'ok');
+  if(allSources.size>0) addLog(`Fuentes: ${[...allSources].join(', ')}`,'ok');
+
+  document.getElementById('statusDot').className='status-dot ok';
+  document.getElementById('statusTxt').textContent=`Actualizado — ${totalUpdated} equipos`;
+  document.getElementById('lastUpdateInfo').textContent=`Última actualización: ${new Date().toLocaleString('es-AR')}`;
+  btn.disabled=false;
+  renderDataPreview();
 }
 
 function renderDataPreview(){
