@@ -696,11 +696,11 @@ Respondé ÚNICAMENTE con este JSON (sin markdown, sin texto extra):
     {"name":"factor","score":número,"note":"nota"},
     {"name":"factor","score":número,"note":"nota"}
   ],
-  "narrative": "análisis táctico completo en español, 5-7 párrafos separados con \\n\\n. Incluir: forma reciente encontrada en web, odds actuales si disponibles, choque de estilos específico, duelos individuales clave, factor desgaste, factor mental, cómo puede decidirse el partido y qué debería hacer cada DT.",
-  "sources_used": ["fuente1","fuente2","fuente3"]
+  "narrative": "análisis en español, 4 párrafos separados con \\n\\n: (1) forma reciente y datos web, (2) choque de estilos y duelos clave, (3) desgaste y factor mental, (4) cómo puede decidirse el partido.",
+  "sources_used": ["fuente1","fuente2"]
 }
 
-IMPORTANTE: pct_home + pct_draw + pct_away = 100 exacto. Ordená score_scenarios de mayor a menor probabilidad.`;
+CRÍTICO: pct_home + pct_draw + pct_away DEBE sumar 100 exacto. JSON válido, sin texto extra antes ni después. Narrative máximo 400 palabras.`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages',{
@@ -708,7 +708,7 @@ IMPORTANTE: pct_home + pct_draw + pct_away = 100 exacto. Ordená score_scenarios
       headers:{'Content-Type':'application/json','x-api-key':getApiKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({
         model:'claude-sonnet-4-6',
-        max_tokens:3000,
+        max_tokens:8000,
         tools:[{type:'web_search_20250305',name:'web_search'}],
         system: systemPrompt,
         messages:[{role:'user',content:userPrompt}]
@@ -723,16 +723,10 @@ IMPORTANTE: pct_home + pct_draw + pct_away = 100 exacto. Ordená score_scenarios
     }
 
     const data=await response.json();
-    // extract text from content blocks
     const textBlocks=data.content.filter(b=>b.type==='text').map(b=>b.text).join('');
-    const clean=textBlocks.replace(/```json|```/g,'').trim();
     let result;
-    try{ result=JSON.parse(clean); }
-    catch(e){
-      const m=clean.match(/\{[\s\S]*\}/);
-      if(m) result=JSON.parse(m[0]);
-      else throw new Error('No se pudo parsear la respuesta.');
-    }
+    try{ result=parseJsonSafe(textBlocks); }
+    catch(e){ throw new Error('No se pudo interpretar la respuesta. Intentá de nuevo.'); }
 
     document.getElementById('loadingPanel').classList.remove('vis');
     renderResult(result, tA, tB, {stage,surface,pressure,gamesA,gamesB,injA,injB});
